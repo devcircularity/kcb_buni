@@ -1,11 +1,14 @@
 const axios = require('axios');
 const { QUERY_TRANSACTION_URL, MPESA_API_KEY, MPESA_API_SECRET, KCB_TOKEN_URL } = process.env;
 
+/**
+ * Generate OAuth Access Token
+ */
 async function getAccessToken() {
   const auth = Buffer.from(`${MPESA_API_KEY}:${MPESA_API_SECRET}`).toString('base64');
 
   try {
-    const { data } = await axios.post(
+    const response = await axios.post(
       KCB_TOKEN_URL,
       'grant_type=client_credentials',
       {
@@ -15,73 +18,69 @@ async function getAccessToken() {
         },
       }
     );
-
-    console.log('Access Token:', data.access_token);
-    return data.access_token;
-  } catch (err) {
-    const errorDetails = err.response?.data || err.message;
-    console.error('Access token error:', errorDetails);
-    throw new Error('Could not retrieve access token');
+    return response.data.access_token;
+  } catch (error) {
+    console.error('Failed to get access token:', error.message);
+    throw new Error('Failed to get access token');
   }
 }
 
+/**
+ * Query Transaction Status
+ */
 async function queryTransactionStatus(req, res) {
   const { transactionReference } = req.body;
+
   if (!transactionReference) {
-    return res.status(400).json({ error: 'Transaction reference is required' });
+    return res.status(400).json({ error: 'Missing transaction reference' });
   }
 
   try {
     const accessToken = await getAccessToken();
-    console.log('Using Access Token:', accessToken);
 
-    const payload = {
+    const requestPayload = {
       header: {
         messageID: `MSG${Date.now()}`,
-        conversationId: `CONV${Date.now()}`,
-        serviceName: 'WalletQueryTransactionStatus',
-        serviceSubCategory: 'TransactionStatus',
+        featureCode: "101",
+        featureName: "FinancialInquiries",
+        serviceCode: "1004",
+        serviceName: "TransactionInfo",
+        serviceSubCategory: "ACCOUNT",
+        minorServiceVersion: "1.0",
+        channelCode: "206",
+        channelName: "ibank",
+        routeCode: "001",
         timeStamp: new Date().toISOString(),
-        serviceMode: 'SYNC',
-        channelCode: 'WEB',
+        serviceMode: "sync",
+        subscribeEvents: "1",
+        callBackURL: ""
       },
       requestPayload: {
-        partnerId: '2',
-        trxRequestId: transactionReference,
-        additionalData: {},
-      },
+        transactionInfo: {
+          primaryData: {
+            businessKey: transactionReference,
+            businessKeyType: "CHECKOUT"
+          },
+          additionalDetails: {
+            companyCode: "KE0010001"
+          }
+        }
+      }
     };
 
-    console.log('Payload:', JSON.stringify(payload, null, 2));
+    const response = await axios.post(`${QUERY_TRANSACTION_URL}/api/transactioninfo`, requestPayload, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
 
-    const { data } = await axios.post(
-      `${QUERY_TRANSACTION_URL}/api/transactioninfo`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    console.log('Transaction Status:', response.data);
+    res.json({ message: 'Transaction status retrieved successfully', data: response.data });
 
-    console.log('API Response:', data);
-    res.json({ message: 'Transaction status retrieved successfully', data });
-  } catch (err) {
-    console.error('Transaction status error:', err);
-
-    if (err.response) {
-      const { status, data: errorData } = err.response;
-      res.status(status).json({
-        error: 'Failed to retrieve transaction status',
-        details: errorData,
-      });
-    } else {
-      res.status(500).json({
-        error: 'Failed to retrieve transaction status',
-        details: err.message,
-      });
-    }
+  } catch (error) {
+    console.error('Error querying transaction status:', error.message);
+    res.status(500).json({ error: 'Failed to query transaction status', details: error.message });
   }
 }
 

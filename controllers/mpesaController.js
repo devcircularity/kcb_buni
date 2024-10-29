@@ -2,7 +2,7 @@ const axios = require('axios');
 const { MPESA_API_KEY, MPESA_API_SECRET, KCB_TOKEN_URL, KCB_API_URL } = process.env;
 
 /**
- * Generate OAuth access token
+ * Generate OAuth Access Token
  */
 async function getAccessToken() {
   const auth = Buffer.from(`${MPESA_API_KEY}:${MPESA_API_SECRET}`).toString('base64');
@@ -28,14 +28,27 @@ async function getAccessToken() {
 }
 
 /**
- * Initiate STK Push and Save Transaction Reference
+ * Sanitize phone number by removing any '+' symbols
+ */
+function sanitizePhoneNumber(phoneNumber) {
+  const sanitizedNumber = phoneNumber.replace(/\+/g, '');
+  console.log('Sanitized Phone Number:', sanitizedNumber);
+  return sanitizedNumber;
+}
+
+/**
+ * Initiate STK Push Request with Customer Reference
  */
 async function initiateStkPush(req, res) {
-  const { phoneNumber, amount, invoiceNumber, description } = req.body;
+  console.log('Received STK Push request:', req.body);
 
-  if (!phoneNumber || !amount || !invoiceNumber || !description) {
+  let { phoneNumber, amount, invoiceNumber, description, customerReference } = req.body;
+
+  if (!phoneNumber || !amount || !invoiceNumber || !description || !customerReference) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+
+  phoneNumber = sanitizePhoneNumber(phoneNumber);
 
   try {
     const accessToken = await getAccessToken();
@@ -44,12 +57,15 @@ async function initiateStkPush(req, res) {
       amount,
       phoneNumber,
       invoiceNumber,
+      customerReference,  // Include customer reference here
       orgPassKey: 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
       orgShortCode: '174379',
       sharedShortCode: true,
-      callbackUrl: 'https://d10c-196-207-166-51.ngrok-free.app/api/callback',
+      callbackUrl: 'https://7033-196-207-166-51.ngrok-free.app/api/mpesa/callback',
       transactionDescription: description,
     };
+
+    console.log('STK Push Payload:', stkPushRequest);
 
     const response = await axios.post(`${KCB_API_URL}/stkpush`, stkPushRequest, {
       headers: {
@@ -60,16 +76,16 @@ async function initiateStkPush(req, res) {
 
     console.log('STK Push Response:', response.data);
 
-    const { CheckoutRequestID } = response.data.response; // Extract relevant ID
+    const { CheckoutRequestID } = response.data.response;
 
     if (!CheckoutRequestID) {
       throw new Error('No CheckoutRequestID returned in STK Push response');
     }
 
-    // Store the CheckoutRequestID for querying
     res.json({
       message: 'STK Push initiated successfully',
       transactionReference: CheckoutRequestID,
+      customerReference,  // Return customer reference in the response
     });
   } catch (error) {
     console.error('Error initiating STK Push:', error.message);
