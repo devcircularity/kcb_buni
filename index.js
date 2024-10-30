@@ -5,7 +5,7 @@ const cors = require('cors'); // Import CORS middleware
 const app = express();
 
 // List of allowed origins
-const allowedOrigins = ['http://localhost:7777', 'http://localhost:3000'];
+const allowedOrigins = ['http://localhost:7777', 'http://localhost:3000', 'https://carolekinotifoundation.co.ke'];
 
 // CORS configuration
 app.use(cors({
