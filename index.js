@@ -1,13 +1,20 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors'); // Import CORS middleware
+const cors = require('cors');
+const mongoose = require('mongoose');
 
 const app = express();
 
-// List of allowed origins
-const allowedOrigins = ['http://localhost:7777', 'http://localhost:3000', 'https://carolekinotifoundation.co.ke'];
+// Middleware to parse JSON requests
+app.use(express.json());
 
 // CORS configuration
+const allowedOrigins = [
+  'http://localhost:7777',
+  'http://localhost:3000',
+  'https://carolekinotifoundation.co.ke'
+];
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or Postman)
@@ -22,7 +29,23 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'], // Allow specific headers
 }));
 
-app.use(express.json()); // Middleware to parse JSON requests
+// MongoDB connection
+const dbUri = process.env.MONGODB_URI;
+
+mongoose.connect(dbUri, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log('Connected to MongoDB successfully'))
+  .catch((error) => {
+    console.error('MongoDB connection error:', error);
+    process.exit(1); // Exit the app if the connection fails
+  });
+
+const db = mongoose.connection;
+db.on('error', (error) => {
+  console.error('MongoDB error:', error);
+});
 
 // Import routes
 const mpesaRoutes = require('./routes/mpesaRoutes');

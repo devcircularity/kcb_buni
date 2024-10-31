@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { MPESA_API_KEY, MPESA_API_SECRET, KCB_TOKEN_URL, KCB_API_URL } = process.env;
+const Transaction = require('../model/Transaction');
 
 /**
  * Generate OAuth Access Token
@@ -37,35 +38,38 @@ function sanitizePhoneNumber(phoneNumber) {
 }
 
 /**
- * Initiate STK Push Request with Customer Reference
+ * Initiate STK Push Request with the correct payload structure
  */
 async function initiateStkPush(req, res) {
-  console.log('Received STK Push request:', req.body);
+  console.log('Payload received from frontend:', req.body);
 
-  let { phoneNumber, amount, invoiceNumber, description, customerReference } = req.body;
-
-  if (!phoneNumber || !amount || !invoiceNumber || !description || !customerReference) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  phoneNumber = sanitizePhoneNumber(phoneNumber);
+  const {
+    phoneNumber,
+    amount,
+    invoiceNumber,
+    sharedShortCode = true,  // Default value
+    orgShortCode = '',  // Replace with your default organization short code
+    orgPassKey = '',  // Replace with your actual pass key
+    callbackUrl = 'https://webhook.site/2a5a9aac-4cf1-4775-ba1a-661e7e6a22dd',  // Replace with your actual callback URL
+    transactionDescription = 'Payment for order',  // Default description
+  } = req.body;
 
   try {
     const accessToken = await getAccessToken();
+    const sanitizedPhone = sanitizePhoneNumber(phoneNumber);
 
     const stkPushRequest = {
       amount,
-      phoneNumber,
+      phoneNumber: sanitizedPhone,
       invoiceNumber,
-      customerReference,  // Include customer reference here
-      orgPassKey: 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919',
-      orgShortCode: '174379',
-      sharedShortCode: true,
-      callbackUrl: 'https://7033-196-207-166-51.ngrok-free.app/api/mpesa/callback',
-      transactionDescription: description,
+      sharedShortCode,
+      orgShortCode,
+      orgPassKey,
+      callbackUrl,
+      transactionDescription,
     };
 
-    console.log('STK Push Payload:', stkPushRequest);
+    console.log('STK Push Request Payload:', stkPushRequest);
 
     const response = await axios.post(`${KCB_API_URL}/stkpush`, stkPushRequest, {
       headers: {
@@ -74,22 +78,24 @@ async function initiateStkPush(req, res) {
       },
     });
 
-    console.log('STK Push Response:', response.data);
+    console.log('Response from STK Push request:', response.data);
 
     const { CheckoutRequestID } = response.data.response;
 
-    if (!CheckoutRequestID) {
-      throw new Error('No CheckoutRequestID returned in STK Push response');
-    }
-
-    res.json({
-      message: 'STK Push initiated successfully',
+    const newTransaction = new Transaction({
+      phoneNumber: sanitizedPhone,
+      amount,
+      invoiceNumber,
       transactionReference: CheckoutRequestID,
-      customerReference,  // Return customer reference in the response
+      status: 'pending',  // Initial status
     });
+
+    await newTransaction.save();
+
+    res.json({ message: 'STK Push initiated successfully', CheckoutRequestID });
   } catch (error) {
-    console.error('Error initiating STK Push:', error.message);
-    res.status(500).json({ error: 'Failed to initiate STK Push', details: error.message });
+    console.error('Error initiating STK Push:', error);
+    res.status(500).json({ error: 'Failed to initiate STK Push' });
   }
 }
 
